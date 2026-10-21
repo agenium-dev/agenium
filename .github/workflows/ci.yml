@@ -1,0 +1,23 @@
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        package: [agenium-sdk, agenium-manager]
+        python: ["3.11", "3.13"]
+    steps:
+      - uses: actions/checkout@v7
+      - uses: astral-sh/setup-uv@v10.3.1
+      - name: Test ${{ matrix.package }}
+        run: uv run --locked --python ${{ matrix.python }} --package ${{ matrix.package }} pytest packages/${{ matrix.package }}

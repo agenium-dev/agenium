@@ -1,0 +1,30 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "agenium-sdk"
+dynamic = ["version"]
+description = "The Agenium runtime library: the versioned contract between Agenium apps and the manager. Early stage."
+readme = "README.md"
+requires-python = ">=3.11"
+authors = [{ name = "agenium-dev" }]
+classifiers = [
+    "Development Status :: 1 - Planning",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3 :: Only",
+]
+dependencies = []
+
+[project.urls]
+Homepage = "https://github.com/agenium-dev/agenium"
+Source = "https://github.com/agenium-dev/agenium/tree/main/packages/agenium-sdk"
+
+[tool.hatch.version]
+path = "src/agenium_sdk/__init__.py"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/agenium_sdk"]
+
+[dependency-groups]
+dev = ["pytest>=8"]

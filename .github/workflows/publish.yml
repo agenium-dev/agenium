@@ -1,0 +1,64 @@
+name: publish
+
+# A package is released by pushing the tag <package>/v<version> on a commit
+# whose package version matches it. Each package publishes to PyPI through
+# Trusted Publishing from its own environment.
+on:
+  push:
+    tags:
+      - "agenium-sdk/v*"
+      - "agenium-manager/v*"
+
+permissions:
+  contents: read
+
+jobs:
+  agenium-sdk:
+    if: startsWith(github.ref_name, 'agenium-sdk/v')
+    runs-on: ubuntu-latest
+    environment:
+      name: agenium-sdk
+      url: https://pypi.org/project/agenium-sdk/
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@v7
+      - uses: astral-sh/setup-uv@v10.3.1
+      - name: Test
+        run: uv run --locked --package agenium-sdk pytest packages/agenium-sdk
+      - name: Build
+        run: uv build --package agenium-sdk --out-dir dist
+      - name: Check the tag names the built version
+        env:
+          TAG: ${{ github.ref_name }}
+        run: |
+          version="${TAG#agenium-sdk/v}"
+          ls dist/agenium_sdk-"$version"-py3-none-any.whl dist/agenium_sdk-"$version".tar.gz
+      - name: Publish to PyPI
+        run: uv publish --trusted-publishing always dist/*
+
+  agenium-manager:
+    if: startsWith(github.ref_name, 'agenium-manager/v')
+    runs-on: ubuntu-latest
+    environment:
+      name: agenium-manager
+      url: https://pypi.org/project/agenium-manager/
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@v7
+      - uses: astral-sh/setup-uv@v10.3.1
+      - name: Test
+        run: uv run --locked --package agenium-manager pytest packages/agenium-manager
+      - name: Build
+        run: uv build --package agenium-manager --out-dir dist
+      - name: Check the tag names the built version
+        env:
+          TAG: ${{ github.ref_name }}
+        run: |
+          version="${TAG#agenium-manager/v}"
+          ls dist/agenium_manager-"$version"-py3-none-any.whl dist/agenium_manager-"$version".tar.gz
+      - name: Publish to PyPI
+        run: uv publish --trusted-publishing always dist/*
