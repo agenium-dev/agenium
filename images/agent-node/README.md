@@ -1,0 +1,19 @@
+# agent-node
+
+The standard agent node image, `ghcr.io/agenium-dev/agent-node`. It holds the tools and the boot path of an agent node: Python and uv, Claude Code and Codex, the capabilities manager with the whole capability catalogue, the supervisor, and the entrypoint. It holds no agent and no secret, and no image is built per agent.
+
+## Running it
+
+Started with nothing, the node waits idle and healthy, and its log says what it is waiting for. It raises an agent once it has all three of these:
+
+- `CAPABILITIES_PROJECT_ID`, the id of the agent the store holds;
+- `AGENT_NODE_NAME`, this node's name among the agent's nodes;
+- a store setting the capabilities manager resolves, either the `AGENTKIT_DB_*` keys in the environment or a store setting file written onto the node.
+
+While it waits, it looks again every `AGENT_NODE_POLL_SECONDS` (30 by default), so a store setting written while it waits brings it up without a restart. Then it binds its root, `CAPABILITIES_PROJECT_ID_ROOT` (`/app` by default), to that agent and composes the agent's context from the store. It compiles the agent's services with `deployment` and runs them under the supervisor. Each service starts only where the agent's gate places it on this node.
+
+The Claude Code and Codex logins are made on the node. Keep `/home/agent/.claude`, `/home/agent/.codex`, `/home/agent/.config` and `/home/agent/.local/state` on volumes if they should outlive the container.
+
+## Releasing
+
+A pull request or a push to `main` that changes the image builds it and checks it. A release is made by pushing the tag `agent-node/v<version>` on a commit whose `VERSION` matches it. The `agent-node.yml` workflow then publishes `ghcr.io/agenium-dev/agent-node:<version>` and moves `:latest` to it.

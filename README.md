@@ -11,6 +11,10 @@ Each package lives in its own folder under `packages/` and is versioned and rele
 - [`agenium-sdk`](packages/agenium-sdk) - the runtime library an app is built on, carrying the versioned contract between apps and the manager.
 - [`agenium-manager`](packages/agenium-manager) - the command-line manager that installs apps into their own environments and runs them.
 
+## Images
+
+- [`agent-node`](images/agent-node) - the standard agent node image, `ghcr.io/agenium-dev/agent-node`: the agent CLIs, the capability CLIs and the boot path, with no agent and no secret inside.
+
 ## Development
 
 The repository is a [uv](https://docs.astral.sh/uv/) workspace.
