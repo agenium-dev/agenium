@@ -125,6 +125,41 @@ jobs:
             curl -fsS --unix-socket /var/run/docker.sock http://localhost/_ping
           '
 
+      - name: Check the node with the Docker socket boots again on a restart
+        # The second boot runs the entrypoint again in the same container,
+        # after its first boot has left its files behind.
+        run: |
+          docker restart agent-node-socket
+          for _ in $(seq 1 60); do
+            status="$(docker inspect -f '{{.State.Status}} {{.State.Health.Status}}' agent-node-socket)"
+            if [ "$status" = "running healthy" ] && [ "$(docker logs agent-node-socket 2>&1 | grep -c '\[entrypoint\] idle:')" -ge 2 ]; then
+              break
+            fi
+            case "$status" in running*) sleep 5 ;; *) break ;; esac
+          done
+          docker logs agent-node-socket
+          test "$(docker inspect -f '{{.State.Status}} {{.State.Health.Status}}' agent-node-socket)" = "running healthy"
+          test "$(docker logs agent-node-socket 2>&1 | grep -c '\[entrypoint\] idle:')" -ge 2
+          test "$(docker logs agent-node-socket 2>&1 | grep -c "Docker socket is reached through group $(stat -c %g /var/run/docker.sock)")" -ge 2
+          if docker logs agent-node-socket 2>&1 | grep -E 'exec: .*not found'; then exit 1; fi
+          docker exec agent-node-socket curl -fsS --unix-socket /var/run/docker.sock http://localhost/_ping
+
+      - name: Check the health check fails without the services or their supervisor
+        run: |
+          docker exec agent-node-socket bash -c '
+            set -e
+            /opt/agent/healthcheck
+            saved="$(cat /tmp/agent-node.state)"
+            echo "unhealthy: running agent x as node n without its services, which could not be compiled" > /tmp/agent-node.state
+            if /opt/agent/healthcheck; then exit 1; fi
+            echo "running agent x as node n" > /tmp/agent-node.state
+            echo /nowhere/supervisord.conf > /tmp/agent-node.supervisor
+            if /opt/agent/healthcheck; then exit 1; fi
+            rm -f /tmp/agent-node.supervisor
+            printf "%s\n" "$saved" > /tmp/agent-node.state
+            /opt/agent/healthcheck
+          '
+
       - name: Check a capability the image installed can be replaced in the container
         # The image's own registry entries sit in its overlay layer, which
         # refuses to rename a directory; an update replaces them all the same.
