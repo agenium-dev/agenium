@@ -68,8 +68,8 @@ RUN mkdir -p /opt/agent /app && chown ${USERNAME}:${USERNAME} /opt/agent /app \
  && ln -sf /home/agent/.local/bin/claude /usr/local/bin/claude \
  && ln -sf /home/agent/.local/bin/codex /usr/local/bin/codex
 USER ${USERNAME}
-COPY --chown=${USERNAME}:${USERNAME} entrypoint.sh /opt/agent/
-RUN chmod +x /opt/agent/entrypoint.sh
+COPY --chown=${USERNAME}:${USERNAME} entrypoint.sh healthcheck /opt/agent/
+RUN chmod +x /opt/agent/entrypoint.sh /opt/agent/healthcheck
 
 # The node stays the agent's: a docker exec lands as the agent. Its one root
 # path is the helper that joins the group of the host's Docker socket at boot,
@@ -108,9 +108,9 @@ RUN mkdir -p "$HOME/.local/state" "$HOME/.config" "$HOME/.claude" "$HOME/.codex"
  && chown ${USERNAME}:${USERNAME} "$HOME/.local/state" "$HOME/.config" "$HOME/.claude" "$HOME/.codex" /app/capabilities
 USER ${USERNAME}
 
-# Healthy while it waits for its agent and once the agent is up: the boot path
-# writes its state, and a box that cannot raise its agent exits instead.
+# Healthy while it waits for its agent and once the agent is up with its
+# services under the supervisor; see the check for what it asks.
 HEALTHCHECK --interval=30s --timeout=5s --start-period=2m --retries=3 \
-  CMD test -s /tmp/agent-node.state
+  CMD /opt/agent/healthcheck
 
 ENTRYPOINT ["/opt/agent/entrypoint.sh"]

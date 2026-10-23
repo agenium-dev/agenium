@@ -1,0 +1,18 @@
+#!/bin/bash
+# The node's health check. Healthy while the boot path waits for its agent and
+# once it runs it; unhealthy when the agent runs without the services it could
+# not compile, and when the supervisor the boot path handed over to does not
+# answer.
+state="$(cat /tmp/agent-node.state 2>/dev/null)" || exit 1
+case "$state" in
+  "") exit 1 ;;
+  unhealthy:*) echo "$state"; exit 1 ;;
+esac
+if conf="$(cat /tmp/agent-node.supervisor 2>/dev/null)" && [ -n "$conf" ]; then
+  pid="$(supervisorctl -c "$conf" pid 2>/dev/null)"
+  if ! [[ "$pid" =~ ^[1-9][0-9]*$ ]]; then
+    echo "the supervisor does not answer: $state"
+    exit 1
+  fi
+fi
+echo "$state"

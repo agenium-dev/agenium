@@ -6,10 +6,16 @@
 # the agent's services under the supervisor.
 set -euo pipefail
 
-# What the box is doing, for its health check: present while it waits and once
-# it runs. A box that cannot raise its agent exits instead.
+# What the box is doing, for its health check: healthy while it waits and once
+# it runs, unhealthy once it runs its agent without the services it could not
+# compile. The supervisor's configuration is named only once the supervisor is
+# what runs, and the health check then also asks the supervisor. A box that
+# cannot raise its agent exits instead. A restarted container keeps /tmp, so
+# each boot starts both afresh.
 STATE=/tmp/agent-node.state
+SUPERVISED=/tmp/agent-node.supervisor
 node_state() { printf '%s\n' "$*" > "$STATE"; }
+rm -f "$SUPERVISED"
 node_state "booting"
 
 # --- The host's Docker socket ------------------------------------------------
@@ -27,7 +33,7 @@ if [ -S /var/run/docker.sock ]; then
       ;;
     *)
       if [ -z "${AGENT_NODE_DOCKER_SOCKET_JOINED:-}" ]; then
-        (umask 077; { export -p; printf 'set --'; printf ' %q' "$@"; printf '\n'; } > /tmp/agent-node.env)
+        (umask 077; { export -p; printf 'set --'; [ "$#" -eq 0 ] || printf ' %q' "$@"; printf '\n'; } > /tmp/agent-node.env)
         exec sudo -n /usr/local/sbin/agent-node-join-docker-socket
       fi
       echo "[entrypoint] WARN: the agent is not in group $socket_gid of the host's Docker socket, so it cannot reach Docker" >&2
@@ -169,8 +175,12 @@ capabilities doctor >/dev/null 2>&1 || echo "[entrypoint] WARN: capabilities doc
 # --- The agent's services ----------------------------------------------------
 # `deployment` compiles them for this agent, here and on every boot: a runner
 # for every service of the installed catalogue, each of which starts its
-# service only where the agent's gate places it on this node.
+# service only where the agent's gate places it on this node. The compiled
+# folder is the entrypoint's own, so each boot - a restart of the same
+# container too - lays it anew rather than meeting what the last boot left.
 supervisor_conf=""
+compiled=""
+rm -rf "$APP/deployment"
 if out="$(deployment init --profile agent-box-shell --provider manual < /dev/null 2>&1)" \
    && out="$(python3 - "$APP/deployment/runtime.json" "$APP" <<'PY' 2>&1
 import json, sys
@@ -186,6 +196,7 @@ if container.get("project_root") != root:
 PY
 )" \
    && out="$(deployment sync < /dev/null 2>&1)"; then
+  compiled=yes
   if [ -f "$APP/deployment/targets/production/supervisord.conf" ]; then
     supervisor_conf="$APP/deployment/targets/production/supervisord.conf"
     echo "[entrypoint] services compiled: $(grep -c '^\[program:' "$supervisor_conf") runner(s) under the supervisor"
@@ -211,13 +222,18 @@ fi
 
 echo "[entrypoint] agent node ready; $(claude --version 2>/dev/null || echo 'claude missing'); $claude_auth"
 echo "[entrypoint] $(codex --version 2>/dev/null || echo 'codex missing'); $codex_auth"
-node_state "running agent $CAPABILITIES_PROJECT_ID as node $AGENT_NODE_NAME"
+if [ -n "$compiled" ]; then
+  node_state "running agent $CAPABILITIES_PROJECT_ID as node $AGENT_NODE_NAME"
+else
+  node_state "unhealthy: running agent $CAPABILITIES_PROJECT_ID as node $AGENT_NODE_NAME without its services, which could not be compiled"
+fi
 
 if [ "$#" -gt 0 ]; then
   exec "$@"
 fi
 
 if [ -n "$supervisor_conf" ]; then
+  printf '%s\n' "$supervisor_conf" > "$SUPERVISED"
   exec supervisord -c "$supervisor_conf"
 fi
 
