@@ -1,6 +1,6 @@
 # agent-node
 
-The standard agent node image, `ghcr.io/agenium-dev/agent-node`. It holds the tools and the boot path of an agent node: Python and uv, git and the GitHub CLI (`gh`), Claude Code and Codex, the capabilities manager with the whole capability catalogue, the supervisor, and the entrypoint. It holds no agent and no secret, and no image is built per agent.
+The standard agent node image, `ghcr.io/agenium-dev/agent-node`, for linux/amd64 and linux/arm64. It holds the tools and the boot path of an agent node: Python and uv, git and the GitHub CLI (`gh`), Claude Code and Codex, the capabilities manager with the whole capability catalogue, the supervisor, and the entrypoint. It holds no agent and no secret, and no image is built per agent.
 
 ## Running it
 
@@ -16,4 +16,4 @@ The Claude Code, Codex and GitHub CLI logins are made on the node, each with `do
 
 ## Releasing
 
-A pull request or a push to `main` that changes the image builds it and checks it. A release is made by pushing the tag `agent-node/v<version>` on a commit whose `VERSION` matches it. The `agent-node.yml` workflow then publishes `ghcr.io/agenium-dev/agent-node:<version>` and moves `:latest` to it.
+A pull request or a push to `main` that changes the image builds it and checks it on a native runner of each architecture. A release is made by pushing the tag `agent-node/v<version>` on a commit whose `VERSION` matches it. The `agent-node.yml` workflow then publishes `ghcr.io/agenium-dev/agent-node:<version>` for both architectures, moves `:latest` to it, and writes the tag's release notes, which name any capability whose environment is not made on an architecture; such a capability does not hold the image back.

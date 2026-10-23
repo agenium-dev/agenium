@@ -1,9 +1,11 @@
 name: agent-node
 
 # The standard agent node image. A change to it is built and checked on every
-# pull request and push to main; it is published by pushing the tag
-# agent-node/v<version> on a commit whose images/agent-node/VERSION matches it,
-# as ghcr.io/agenium-dev/agent-node:<version> and :latest.
+# pull request and push to main, natively for linux/amd64 and linux/arm64; it is
+# published by pushing the tag agent-node/v<version> on a commit whose
+# images/agent-node/VERSION matches it, as the multi-architecture
+# ghcr.io/agenium-dev/agent-node:<version> and :latest, with release notes that
+# name any capability whose environment is not made on an architecture.
 on:
   push:
     branches: [main]
@@ -25,10 +27,22 @@ env:
 
 jobs:
   image:
-    runs-on: ubuntu-latest
+    name: image (${{ matrix.arch }})
+    strategy:
+      matrix:
+        include:
+          - arch: amd64
+            runner: ubuntu-latest
+          - arch: arm64
+            runner: ubuntu-24.04-arm
+    runs-on: ${{ matrix.runner }}
     permissions:
       contents: read
       packages: write
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+    env:
+      ARCH: ${{ matrix.arch }}
     steps:
       - uses: actions/checkout@v7
 
@@ -49,7 +63,9 @@ jobs:
           fi
 
       - name: Build
-        run: docker build --pull -t "$IMAGE:candidate" images/agent-node
+        run: |
+          docker build --pull -t "$IMAGE:candidate" images/agent-node
+          test "$(docker image inspect -f '{{.Architecture}}' "$IMAGE:candidate")" = "$ARCH"
 
       - name: Check the tools are in it
         run: |
@@ -85,7 +101,37 @@ jobs:
           docker inspect -f '{{json .State}}' agent-node-idle
           exit 1
 
-      - name: Publish
+      - name: Check each capability's environment is made
+        # Not a gate: a capability whose environment cannot be made on this
+        # architecture is named in the release notes, and the image publishes.
+        run: |
+          docker run --rm -i --entrypoint bash "$IMAGE:candidate" -s > environments.txt <<'EOF'
+          set -euo pipefail
+          cd /tmp
+          names="$(capabilities list | python3 -c 'import json, sys; print("\n".join(c["name"] for c in json.load(sys.stdin)["installed"]))')"
+          test -n "$names"
+          for name in $names; do
+            "$name" help > /dev/null 2>&1 || echo "$name"
+          done
+          EOF
+          if [ -s environments.txt ]; then
+            echo "::warning::environment not made on linux/$ARCH: $(paste -sd ' ' environments.txt)"
+          fi
+          {
+            echo "### Capability environments on linux/$ARCH"
+            if [ -s environments.txt ]; then
+              sed 's/^/- not made: /' environments.txt
+            else
+              echo "Every installed capability's environment is made."
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - uses: actions/upload-artifact@v7
+        with:
+          name: environments-${{ matrix.arch }}
+          path: environments.txt
+
+      - name: Push this architecture's image
         if: steps.version.outputs.publish == 'true'
         env:
           VERSION: ${{ steps.version.outputs.version }}
@@ -93,7 +139,56 @@ jobs:
           ACTOR: ${{ github.actor }}
         run: |
           printf '%s' "$TOKEN" | docker login ghcr.io -u "$ACTOR" --password-stdin
-          docker tag "$IMAGE:candidate" "$IMAGE:$VERSION"
-          docker tag "$IMAGE:candidate" "$IMAGE:latest"
-          docker push "$IMAGE:$VERSION"
-          docker push "$IMAGE:latest"
+          docker tag "$IMAGE:candidate" "$IMAGE:$VERSION-$ARCH"
+          docker push "$IMAGE:$VERSION-$ARCH"
+
+  publish:
+    needs: image
+    if: startsWith(github.ref, 'refs/tags/agent-node/v')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      packages: write
+    env:
+      VERSION: ${{ needs.image.outputs.version }}
+    steps:
+      - uses: actions/download-artifact@v8
+        with:
+          pattern: environments-*
+
+      - name: Publish the image for both architectures
+        env:
+          TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          ACTOR: ${{ github.actor }}
+        run: |
+          printf '%s' "$TOKEN" | docker login ghcr.io -u "$ACTOR" --password-stdin
+          docker buildx imagetools create -t "$IMAGE:$VERSION" -t "$IMAGE:latest" \
+            "$IMAGE:$VERSION-amd64" "$IMAGE:$VERSION-arm64"
+          for ref in "$IMAGE:$VERSION" "$IMAGE:latest"; do
+            platforms="$(docker buildx imagetools inspect --raw "$ref" \
+              | python3 -c 'import json, sys; print(" ".join(sorted(m["platform"]["os"] + "/" + m["platform"]["architecture"] for m in json.load(sys.stdin)["manifests"] if m["platform"]["os"] != "unknown")))')"
+            echo "$ref: $platforms"
+            test "$platforms" = "linux/amd64 linux/arm64"
+          done
+
+      - name: Write the release notes
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ github.ref_name }}
+        run: |
+          {
+            echo "\`$IMAGE:$VERSION\` and \`:latest\`, for linux/amd64 and linux/arm64."
+            for arch in amd64 arm64; do
+              echo
+              if [ -s "environments-$arch/environments.txt" ]; then
+                echo "Capabilities whose environment is not made on linux/$arch:"
+                sed 's/^/- /' "environments-$arch/environments.txt"
+              else
+                echo "Every capability's environment is made on linux/$arch."
+              fi
+            done
+          } > notes.md
+          cat notes.md
+          gh release create "$TAG" --repo "$GITHUB_REPOSITORY" --verify-tag \
+              --title "agent-node $VERSION" --notes-file notes.md \
+            || gh release edit "$TAG" --repo "$GITHUB_REPOSITORY" --notes-file notes.md
