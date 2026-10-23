@@ -1,6 +1,6 @@
 # agent-node
 
-The standard agent node image, `ghcr.io/agenium-dev/agent-node`. It holds the tools and the boot path of an agent node: Python and uv, Claude Code and Codex, the capabilities manager with the whole capability catalogue, the supervisor, and the entrypoint. It holds no agent and no secret, and no image is built per agent.
+The standard agent node image, `ghcr.io/agenium-dev/agent-node`. It holds the tools and the boot path of an agent node: Python and uv, git and the GitHub CLI (`gh`), Claude Code and Codex, the capabilities manager with the whole capability catalogue, the supervisor, and the entrypoint. It holds no agent and no secret, and no image is built per agent.
 
 ## Running it
 
@@ -12,7 +12,7 @@ Started with nothing, the node waits idle and healthy, and its log says what it 
 
 While it waits, it looks again every `AGENT_NODE_POLL_SECONDS` (30 by default), so a store setting written while it waits brings it up without a restart. Then it binds its root, `CAPABILITIES_PROJECT_ID_ROOT` (`/app` by default), to that agent and composes the agent's context from the store. It compiles the agent's services with `deployment` and runs them under the supervisor. Each service starts only where the agent's gate places it on this node.
 
-The Claude Code and Codex logins are made on the node. Keep `/home/agent/.claude`, `/home/agent/.codex`, `/home/agent/.config` and `/home/agent/.local/state` on volumes if they should outlive the container.
+The Claude Code, Codex and GitHub CLI logins are made on the node, each with `docker exec -it <container>`: `claude login`, `codex login --device-auth` and `gh auth login`. The `gh` login also lets git reach github.com over https, through the credential helper the image sets. Keep `/home/agent/.claude`, `/home/agent/.codex`, `/home/agent/.config` and `/home/agent/.local/state` on volumes if they should outlive the container.
 
 ## Releasing
 

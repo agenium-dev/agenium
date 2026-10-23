@@ -11,6 +11,21 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
         ca-certificates curl git openssh-client ripgrep file ffmpeg python3 procps supervisor \
     && rm -rf /var/lib/apt/lists/*
 
+# GitHub CLI, from GitHub's own apt repository. Its login is made on the node
+# and kept on the config volume (~/.config/gh); git reaches github.com over
+# https through it, set system-wide so the helper outlives a new tag.
+RUN set -eux; \
+    install -d -m 0755 /etc/apt/keyrings; \
+    curl -fsSL https://cli.github.com/packages/githubcli-archive-keyring.gpg \
+      -o /etc/apt/keyrings/githubcli-archive-keyring.gpg; \
+    chmod go+r /etc/apt/keyrings/githubcli-archive-keyring.gpg; \
+    echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/githubcli-archive-keyring.gpg] https://cli.github.com/packages stable main" \
+      > /etc/apt/sources.list.d/github-cli.list; \
+    apt-get update; \
+    apt-get install -y --no-install-recommends gh; \
+    rm -rf /var/lib/apt/lists/*; \
+    git config --system credential.https://github.com.helper '!gh auth git-credential'
+
 COPY --from=ghcr.io/astral-sh/uv:latest /uv /uvx /usr/local/bin/
 
 ARG USERNAME=agent

@@ -58,6 +58,9 @@ jobs:
             uv --version
             python3 --version
             uv python find 3.13
+            git --version
+            gh --version
+            test "$(git config --system credential.https://github.com.helper)" = "!gh auth git-credential"
             claude --version
             codex --version
             supervisord --version
