@@ -12,6 +12,29 @@ STATE=/tmp/agent-node.state
 node_state() { printf '%s\n' "$*" > "$STATE"; }
 node_state "booting"
 
+# --- The host's Docker socket ------------------------------------------------
+# A node given the host's /var/run/docker.sock reaches it through the socket's
+# group, whose id is the host's. While the agent is not in it, the entrypoint
+# saves its environment and arguments and hands over to the one root helper the
+# agent may run, which puts the agent in that group and starts the entrypoint
+# again as the agent. The image stays the agent's, so a docker exec still lands
+# as the agent, and from then on in the socket's group too.
+if [ -S /var/run/docker.sock ]; then
+  socket_gid="$(stat -c %g /var/run/docker.sock)"
+  case " $(id -G) " in
+    *" $socket_gid "*)
+      echo "[entrypoint] the host's Docker socket is reached through group $socket_gid"
+      ;;
+    *)
+      if [ -z "${AGENT_NODE_DOCKER_SOCKET_JOINED:-}" ]; then
+        (umask 077; { export -p; printf 'set --'; printf ' %q' "$@"; printf '\n'; } > /tmp/agent-node.env)
+        exec sudo -n /usr/local/sbin/agent-node-join-docker-socket
+      fi
+      echo "[entrypoint] WARN: the agent is not in group $socket_gid of the host's Docker socket, so it cannot reach Docker" >&2
+      ;;
+  esac
+fi
+
 if [ -n "${GIT_DEPLOY_KEY_B64:-}" ]; then
   mkdir -p "$HOME/.ssh" && chmod 700 "$HOME/.ssh"
   if printf '%s' "$GIT_DEPLOY_KEY_B64" | base64 -d > "$HOME/.ssh/id_ed25519" 2>/dev/null \

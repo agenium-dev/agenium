@@ -8,7 +8,7 @@ LABEL org.opencontainers.image.source="https://github.com/agenium-dev/agenium"
 LABEL org.opencontainers.image.description="The standard Agenium agent node: agent CLIs, capability CLIs and the boot path, with no agent and no secret inside."
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
-        ca-certificates curl git openssh-client ripgrep file ffmpeg python3 procps supervisor \
+        ca-certificates curl git openssh-client ripgrep file ffmpeg python3 procps supervisor sudo \
     && rm -rf /var/lib/apt/lists/*
 
 # GitHub CLI, from GitHub's own apt repository. Its login is made on the node
@@ -70,6 +70,18 @@ RUN mkdir -p /opt/agent /app && chown ${USERNAME}:${USERNAME} /opt/agent /app \
 USER ${USERNAME}
 COPY --chown=${USERNAME}:${USERNAME} entrypoint.sh /opt/agent/
 RUN chmod +x /opt/agent/entrypoint.sh
+
+# The node stays the agent's: a docker exec lands as the agent. Its one root
+# path is the helper that joins the group of the host's Docker socket at boot,
+# kept where the agent cannot replace it and run by sudo with no argument.
+USER root
+COPY join-docker-socket /usr/local/sbin/agent-node-join-docker-socket
+COPY sudoers /etc/sudoers.d/agent-node
+RUN chown root:root /usr/local/sbin/agent-node-join-docker-socket /etc/sudoers.d/agent-node \
+ && chmod 0755 /usr/local/sbin/agent-node-join-docker-socket \
+ && chmod 0440 /etc/sudoers.d/agent-node \
+ && visudo -cf /etc/sudoers.d/agent-node
+USER ${USERNAME}
 
 # Capability CLIs: every capability in the catalogue at CAPABILITIES_REF (a
 # branch, tag, or SHA), installed by the manager. Whether one is usable is its

@@ -101,6 +101,38 @@ jobs:
           docker inspect -f '{{json .State}}' agent-node-idle
           exit 1
 
+      - name: Check a node given the host's Docker socket reaches it as the agent
+        # The runner's docker group id is the host's own; the image carries none.
+        run: |
+          gid="$(stat -c %g /var/run/docker.sock)"
+          docker run -d --name agent-node-socket -v /var/run/docker.sock:/var/run/docker.sock "$IMAGE:candidate"
+          for _ in $(seq 1 60); do
+            status="$(docker inspect -f '{{.State.Status}} {{.State.Health.Status}}' agent-node-socket)"
+            if [ "$status" = "running healthy" ] && docker logs agent-node-socket 2>&1 | grep -q '\[entrypoint\] idle:'; then
+              break
+            fi
+            case "$status" in running*) sleep 5 ;; *) break ;; esac
+          done
+          docker logs agent-node-socket
+          test "$(docker inspect -f '{{.State.Health.Status}}' agent-node-socket)" = healthy
+          docker logs agent-node-socket 2>&1 | grep -q "Docker socket is reached through group $gid"
+          docker exec -e GID="$gid" agent-node-socket bash -c '
+            set -e
+            test "$(id -un)" = agent
+            case " $(id -G) " in *" $GID "*) ;; *) exit 1 ;; esac
+            test "$(awk "/^Uid:/ {print \$2}" /proc/1/status)" = "$(id -u)"
+            grep -Eq "^Groups:.*[[:space:]]$GID([[:space:]]|\$)" /proc/1/status
+            curl -fsS --unix-socket /var/run/docker.sock http://localhost/_ping
+          '
+
+      - name: Check a capability the image installed can be replaced in the container
+        # The image's own registry entries sit in its overlay layer, which
+        # refuses to rename a directory; an update replaces them all the same.
+        run: |
+          docker exec agent-node-idle capabilities install deployment < /dev/null > /dev/null
+          docker exec agent-node-idle deployment help > /dev/null
+          ! docker logs agent-node-idle 2>&1 | grep -E 'could not update|Errno 18'
+
       - name: Check each capability's environment is made
         # Not a gate: a capability whose environment cannot be made on this
         # architecture is named in the release notes, and the image publishes.

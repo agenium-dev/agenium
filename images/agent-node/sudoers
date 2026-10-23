@@ -1,0 +1,6 @@
+# A node given the host's Docker socket joins the socket's group at boot through
+# this one helper, which takes no argument; see it for what it does. With no pty
+# and no PAM session or credentials to close, sudo execs the helper in its own
+# place rather than staying behind as the node's first process.
+Defaults:agent !use_pty, !pam_session, !pam_setcred
+agent ALL=(root) NOPASSWD: /usr/local/sbin/agent-node-join-docker-socket ""

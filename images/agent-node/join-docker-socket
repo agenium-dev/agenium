@@ -1,0 +1,25 @@
+#!/bin/bash
+# Run as root, through sudo, by the entrypoint of a node given the host's
+# Docker socket. It gives the socket's group id - the host's own, read here at
+# boot, so no image and no Dockerfile carries one - to a group the agent joins,
+# and starts the entrypoint again as the agent, now in that group. It takes
+# nothing from the agent: sudo admits no argument and resets the environment,
+# and what the entrypoint saved is read back only once it runs as the agent.
+set -uo pipefail
+PATH=/usr/sbin:/usr/bin:/sbin:/bin
+sock=/var/run/docker.sock
+
+if [ -S "$sock" ]; then
+  gid="$(stat -c %g "$sock")"
+  group="$(getent group "$gid" | cut -d: -f1)"
+  if [ -z "$group" ]; then
+    group=docker-host
+    groupadd --gid "$gid" "$group" \
+      || echo "[entrypoint] WARN: could not make group $group with the Docker socket's id $gid" >&2
+  fi
+  gpasswd --add agent "$group" > /dev/null \
+    || echo "[entrypoint] WARN: could not add agent to group $group of the Docker socket" >&2
+fi
+
+exec setpriv --reuid=agent --regid=agent --init-groups --reset-env -- /bin/bash -c \
+  'saved=/tmp/agent-node.env; . "$saved" && rm -f "$saved" && export AGENT_NODE_DOCKER_SOCKET_JOINED=1 && exec /opt/agent/entrypoint.sh "$@"'
