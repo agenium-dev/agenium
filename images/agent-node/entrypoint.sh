@@ -159,17 +159,13 @@ if ! NODE_ID="$(capabilities node id < /dev/null | python3 -c 'import json,sys; 
 fi
 NODE="$NODE_ID${AGENT_NODE_NAME:+ ($AGENT_NODE_NAME)}"
 
-if ! capabilities init --id "$CAPABILITIES_PROJECT_ID" < /dev/null > /dev/null; then
-  echo "[entrypoint] FATAL: could not bind $APP to agent $CAPABILITIES_PROJECT_ID as node $NODE in the store this node reaches" >&2
-  exit 1
-fi
-echo "[entrypoint] $APP bound to agent $CAPABILITIES_PROJECT_ID as node $NODE"
-
 # --- A node created before node ids -----------------------------------------
 # Such a node is registered under its name, the AGENT_NODE_NAME it was created
 # with. While the store still holds a node whose id is that name, it is this
-# node, and it moves to its own id here, before any of its services starts. The
-# rekey waits while a lease its previous container held has not yet run out.
+# node, and it moves to its own id here, before the agent is bound - until then
+# the store knows this node only by that name - and before any of its services
+# starts. The rekey waits while a lease its previous container held has not yet
+# run out.
 if [ -n "${AGENT_NODE_NAME:-}" ] && [ "$AGENT_NODE_NAME" != "$NODE_ID" ] \
    && capabilities node list < /dev/null 2>/dev/null | python3 -c 'import json,sys; sys.exit(0 if any(n.get("node") == sys.argv[1] for n in json.load(sys.stdin).get("nodes") or []) else 1)' "$AGENT_NODE_NAME"; then
   node_state "moving node $AGENT_NODE_NAME to its id $NODE_ID"
@@ -185,6 +181,12 @@ if [ -n "${AGENT_NODE_NAME:-}" ] && [ "$AGENT_NODE_NAME" != "$NODE_ID" ] \
   done
   echo "[entrypoint] node $AGENT_NODE_NAME moved to its id $NODE_ID"
 fi
+
+if ! capabilities init --id "$CAPABILITIES_PROJECT_ID" < /dev/null > /dev/null; then
+  echo "[entrypoint] FATAL: could not bind $APP to agent $CAPABILITIES_PROJECT_ID as node $NODE in the store this node reaches" >&2
+  exit 1
+fi
+echo "[entrypoint] $APP bound to agent $CAPABILITIES_PROJECT_ID as node $NODE"
 
 # --- Context, composed from the store ----------------------------------------
 # The agent CLIs' session hooks rebuild it as each session starts; the build here
