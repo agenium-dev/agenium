@@ -4,11 +4,12 @@ The standard agent node image, `ghcr.io/agenium-dev/agent-node`, for linux/amd64
 
 ## Running it
 
-Started with nothing, the node waits idle and healthy, and its log says what it is waiting for. It raises an agent once it has all three of these:
+Started with nothing, the node waits idle and healthy, and its log says what it is waiting for. It raises an agent once it has both of these:
 
 - `CAPABILITIES_PROJECT_ID`, the id of the agent the store holds;
-- `AGENT_NODE_NAME`, this node's name among the agent's nodes;
 - a store setting the capabilities manager resolves, either the `AGENTKIT_DB_*` keys in the environment or a store setting file written onto the node.
+
+It runs as the node whose id is kept on its config volume, `/home/agent/.config/capabilities/node-id`, which enrolment writes there (`capabilities node id --set <id>`) before the store setting; a node that finds none mints one there once. `AGENT_NODE_NAME` is only the label it is shown by. A node created before node ids is registered under that name: at its first boot on this image, while the store still holds a node whose id is its `AGENT_NODE_NAME`, it moves that node to its own id with `capabilities node rekey`, waiting up to `AGENT_NODE_REKEY_SECONDS` (900 by default) for a lease its previous container held to run out, before any of its services starts.
 
 While it waits, it looks again every `AGENT_NODE_POLL_SECONDS` (30 by default), so a store setting written while it waits brings it up without a restart. Then it binds its root, `CAPABILITIES_PROJECT_ID_ROOT` (`/app` by default), to that agent and composes the agent's context from the store. It compiles the agent's services with `deployment` and runs them under the supervisor. Each service starts only where the agent's gate places it on this node. It does the same on every boot, a restart of the same container included, and reports itself unhealthy while it runs the agent without services it could not compile or once the supervisor no longer answers.
 

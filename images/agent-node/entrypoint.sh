@@ -1,9 +1,11 @@
 #!/usr/bin/env bash
 # The standard agent node's boot path. The image knows no agent: it waits idle
-# until it is told which agent it runs (CAPABILITIES_PROJECT_ID), its name as a
-# node (AGENT_NODE_NAME) and a store to reach, then raises that agent from the
-# store into its root (CAPABILITIES_PROJECT_ID_ROOT, /app by default) and runs
-# the agent's services under the supervisor.
+# until it is told which agent it runs (CAPABILITIES_PROJECT_ID) and a store to
+# reach, then raises that agent from the store into its root
+# (CAPABILITIES_PROJECT_ID_ROOT, /app by default) and runs the agent's services
+# under the supervisor. It runs as the node whose id is kept on its config
+# volume, which enrolment writes there (`capabilities node id`);
+# AGENT_NODE_NAME is only the label it is shown by.
 set -euo pipefail
 
 # What the box is doing, for its health check: healthy while it waits and once
@@ -110,17 +112,17 @@ else
 fi
 
 # --- Waiting for its agent ---------------------------------------------------
-# A node starts knowing nothing. Until it has an agent id, a node name and a
-# store the manager resolves for its root - in the environment, or a store
-# setting written onto the node later - it waits here, healthy, and looks again
-# every AGENT_NODE_POLL_SECONDS, so a setting written while it waits brings it up.
+# A node starts knowing nothing. Until it has an agent id and a store the
+# manager resolves for its root - in the environment, or a store setting written
+# onto the node later, after its node id - it waits here, healthy, and looks
+# again every AGENT_NODE_POLL_SECONDS, so a setting written while it waits brings
+# it up.
 APP="${CAPABILITIES_PROJECT_ID_ROOT:-/app}"
 mkdir -p "$APP"
 
 missing() {
   local what=""
   [ -n "${CAPABILITIES_PROJECT_ID:-}" ] || what="$what CAPABILITIES_PROJECT_ID"
-  [ -n "${AGENT_NODE_NAME:-}" ] || what="$what AGENT_NODE_NAME"
   if ! capabilities store show --project "$APP" < /dev/null 2>/dev/null \
        | python3 -c 'import json,sys; sys.exit(0 if json.load(sys.stdin).get("configured") else 1)' 2>/dev/null; then
     what="$what store-setting"
@@ -150,11 +152,39 @@ cd "$APP"
 mkdir -p .contextkit
 [ -f .contextkit/config.toml ] || : > .contextkit/config.toml
 
-if ! capabilities init --id "$CAPABILITIES_PROJECT_ID" < /dev/null > /dev/null; then
-  echo "[entrypoint] FATAL: could not bind $APP to agent $CAPABILITIES_PROJECT_ID as node $AGENT_NODE_NAME in the store this node reaches" >&2
+# The node's id: the one kept on its config volume.
+if ! NODE_ID="$(capabilities node id < /dev/null | python3 -c 'import json,sys; print(json.load(sys.stdin)["id"])')"; then
+  echo "[entrypoint] FATAL: this node resolves no node id; set it with capabilities node id --set <id>" >&2
   exit 1
 fi
-echo "[entrypoint] $APP bound to agent $CAPABILITIES_PROJECT_ID as node $AGENT_NODE_NAME"
+NODE="$NODE_ID${AGENT_NODE_NAME:+ ($AGENT_NODE_NAME)}"
+
+if ! capabilities init --id "$CAPABILITIES_PROJECT_ID" < /dev/null > /dev/null; then
+  echo "[entrypoint] FATAL: could not bind $APP to agent $CAPABILITIES_PROJECT_ID as node $NODE in the store this node reaches" >&2
+  exit 1
+fi
+echo "[entrypoint] $APP bound to agent $CAPABILITIES_PROJECT_ID as node $NODE"
+
+# --- A node created before node ids -----------------------------------------
+# Such a node is registered under its name, the AGENT_NODE_NAME it was created
+# with. While the store still holds a node whose id is that name, it is this
+# node, and it moves to its own id here, before any of its services starts. The
+# rekey waits while a lease its previous container held has not yet run out.
+if [ -n "${AGENT_NODE_NAME:-}" ] && [ "$AGENT_NODE_NAME" != "$NODE_ID" ] \
+   && capabilities node list < /dev/null 2>/dev/null | python3 -c 'import json,sys; sys.exit(0 if any(n.get("node") == sys.argv[1] for n in json.load(sys.stdin).get("nodes") or []) else 1)' "$AGENT_NODE_NAME"; then
+  node_state "moving node $AGENT_NODE_NAME to its id $NODE_ID"
+  deadline=$(( $(date +%s) + ${AGENT_NODE_REKEY_SECONDS:-900} ))
+  until out="$(capabilities node rekey "$AGENT_NODE_NAME" < /dev/null 2>&1)"; do
+    if ! printf '%s' "$out" | grep -q node_services_running || [ "$(date +%s)" -ge "$deadline" ]; then
+      echo "[entrypoint] FATAL: could not move node $AGENT_NODE_NAME to its id $NODE_ID:" >&2
+      printf '%s\n' "$out" >&2
+      exit 1
+    fi
+    echo "[entrypoint] waiting for the services node $AGENT_NODE_NAME ran to let go before moving it to its id"
+    sleep 30
+  done
+  echo "[entrypoint] node $AGENT_NODE_NAME moved to its id $NODE_ID"
+fi
 
 # --- Context, composed from the store ----------------------------------------
 # The agent CLIs' session hooks rebuild it as each session starts; the build here
@@ -223,9 +253,9 @@ fi
 echo "[entrypoint] agent node ready; $(claude --version 2>/dev/null || echo 'claude missing'); $claude_auth"
 echo "[entrypoint] $(codex --version 2>/dev/null || echo 'codex missing'); $codex_auth"
 if [ -n "$compiled" ]; then
-  node_state "running agent $CAPABILITIES_PROJECT_ID as node $AGENT_NODE_NAME"
+  node_state "running agent $CAPABILITIES_PROJECT_ID as node $NODE"
 else
-  node_state "unhealthy: running agent $CAPABILITIES_PROJECT_ID as node $AGENT_NODE_NAME without its services, which could not be compiled"
+  node_state "unhealthy: running agent $CAPABILITIES_PROJECT_ID as node $NODE without its services, which could not be compiled"
 fi
 
 if [ "$#" -gt 0 ]; then
