@@ -106,8 +106,8 @@ RUN curl -fsSL "${CAPABILITIES_SOURCE}/install.sh" \
 # mount point is made here, as root and handed to the agent, so a fresh named
 # volume inherits the agent's ownership.
 USER root
-RUN mkdir -p "$HOME/.local/state" "$HOME/.config" "$HOME/.claude" "$HOME/.codex" /app/capabilities \
- && chown ${USERNAME}:${USERNAME} "$HOME/.local/state" "$HOME/.config" "$HOME/.claude" "$HOME/.codex" /app/capabilities
+RUN mkdir -p "$HOME/.local/state" "$HOME/.config" "$HOME/.claude" "$HOME/.codex" "$HOME/work" /app/capabilities \
+ && chown ${USERNAME}:${USERNAME} "$HOME/.local/state" "$HOME/.config" "$HOME/.claude" "$HOME/.codex" "$HOME/work" /app/capabilities
 USER ${USERNAME}
 
 # Healthy while it waits for its agent and once the agent is up with its
