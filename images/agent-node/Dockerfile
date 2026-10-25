@@ -7,8 +7,10 @@ FROM debian:bookworm-slim
 LABEL org.opencontainers.image.source="https://github.com/agenium-dev/agenium"
 LABEL org.opencontainers.image.description="The standard Agenium agent node: agent CLIs, capability CLIs and the boot path, with no agent and no secret inside."
 
+# bubblewrap and socat are what Claude Code's and Codex's sandboxes need on Linux.
 RUN apt-get update && apt-get install -y --no-install-recommends \
         ca-certificates curl git openssh-client ripgrep file ffmpeg python3 procps supervisor sudo \
+        bubblewrap socat \
     && rm -rf /var/lib/apt/lists/*
 
 # GitHub CLI, from GitHub's own apt repository. Its login is made on the node
