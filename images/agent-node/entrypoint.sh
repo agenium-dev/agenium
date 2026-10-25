@@ -3,8 +3,8 @@
 # until it is told which agent it runs (CAPABILITIES_PROJECT_ID) and a store to
 # reach, then raises that agent from the store into its root
 # (CAPABILITIES_PROJECT_ID_ROOT, /app by default) and runs the agent's services
-# under the supervisor. It runs as the node whose id is kept on its config
-# volume, which enrolment writes there (`capabilities node id`);
+# under the node's service manager. It runs as the node whose id is kept on its
+# config volume, which enrolment writes there (`capabilities node id`);
 # AGENT_NODE_NAME is only the label it is shown by.
 set -euo pipefail
 
@@ -59,6 +59,20 @@ if [ -n "${GIT_DEPLOY_KEY_B64:-}" ]; then
   else
     rm -f "$HOME/.ssh/id_ed25519"
     echo "[entrypoint] WARN: GIT_DEPLOY_KEY_B64 is set but not valid base64; git push identity skipped" >&2
+  fi
+fi
+
+# --- The manager at the catalogue this image names ---------------------------
+# Each boot brings the capabilities to the catalogue at CAPABILITIES_SOURCE, and
+# what they compile may need a manager newer than the one this image was built
+# with - the node's service manager, which runs the agent's services, is the
+# manager's. So the manager is brought to the release that catalogue carries
+# first.
+if capabilities self-update --check < /dev/null 2>/dev/null \
+     | python3 -c 'import json,sys; sys.exit(0 if json.load(sys.stdin).get("update_available") else 1)'; then
+  echo "[entrypoint] updating the capabilities manager to the release the catalogue this image names carries"
+  if ! capabilities self-update < /dev/null > /dev/null; then
+    echo "[entrypoint] WARN: could not update the capabilities manager; the node runs the manager it has" >&2
   fi
 fi
 
@@ -205,10 +219,11 @@ fi
 capabilities doctor >/dev/null 2>&1 || echo "[entrypoint] WARN: capabilities doctor reported findings; run it inside the node" >&2
 
 # --- The agent's services ----------------------------------------------------
-# `deployment` compiles them for this agent, here and on every boot: a runner
-# for every service of the installed catalogue, each of which starts its
-# service only where the agent's gate places it on this node. The compiled
-# folder is the entrypoint's own, so each boot - a restart of the same
+# `deployment` compiles the supervisor for this agent, here and on every boot.
+# For an agent the store holds, its one program for the services is the node's
+# service manager, `capabilities node run`, which keeps a program for each
+# service the agent's gate places on this node and none for any other. The
+# compiled folder is the entrypoint's own, so each boot - a restart of the same
 # container too - lays it anew rather than meeting what the last boot left.
 supervisor_conf=""
 compiled=""
@@ -231,7 +246,11 @@ PY
   compiled=yes
   if [ -f "$APP/deployment/targets/production/supervisord.conf" ]; then
     supervisor_conf="$APP/deployment/targets/production/supervisord.conf"
-    echo "[entrypoint] services compiled: $(grep -c '^\[program:' "$supervisor_conf") runner(s) under the supervisor"
+    if grep -q '^command=capabilities node run ' "$supervisor_conf"; then
+      echo "[entrypoint] services compiled: the node's service manager runs those placed on this node"
+    else
+      echo "[entrypoint] services compiled: $(grep -c '^\[program:' "$supervisor_conf") runner(s) under the supervisor"
+    fi
   else
     echo "[entrypoint] no service in the installed catalogue; nothing runs under the supervisor"
   fi
