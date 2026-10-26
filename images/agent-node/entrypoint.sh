@@ -43,6 +43,12 @@ if [ -S /var/run/docker.sock ]; then
   esac
 fi
 
+# --- Claude Code's account state on its volume -------------------------------
+# Claude Code keeps it in ~/.claude.json, outside the ~/.claude volume; it is
+# kept on the volume through a link, so a redeploy does not lose it.
+/opt/agent/keep-claude-config \
+  || echo "[entrypoint] WARN: could not keep Claude Code's account state on the ~/.claude volume; a redeploy may ask for a sign-in again" >&2
+
 if [ -n "${GIT_DEPLOY_KEY_B64:-}" ]; then
   mkdir -p "$HOME/.ssh" && chmod 700 "$HOME/.ssh"
   if printf '%s' "$GIT_DEPLOY_KEY_B64" | base64 -d > "$HOME/.ssh/id_ed25519" 2>/dev/null \

@@ -41,8 +41,13 @@ WORKDIR /app
 
 RUN mkdir -p "$HOME/.local/bin" "$HOME/.local/state" "$HOME/.claude" "$HOME/.codex"
 
-# Claude Code CLI. Its login is made on the node, never baked in.
-RUN curl -fsSL https://claude.ai/install.sh | bash
+# Claude Code CLI. Its login is made on the node, never baked in. The state it
+# keeps in ~/.claude.json lives on the ~/.claude volume, through a link the
+# entrypoint keeps (keep-claude-config); what the installer wrote there moves
+# onto the volume now, so a fresh volume starts with it.
+RUN curl -fsSL https://claude.ai/install.sh | bash \
+ && if [ -f "$HOME/.claude.json" ] && [ ! -L "$HOME/.claude.json" ]; then mv "$HOME/.claude.json" "$HOME/.claude/.claude.json"; fi \
+ && ln -sfn .claude/.claude.json "$HOME/.claude.json"
 
 # OpenAI Codex CLI. The complete package includes the code-mode host and runtime
 # resources required by current releases. Its login is made on the node.
@@ -70,8 +75,8 @@ RUN mkdir -p /opt/agent /app && chown ${USERNAME}:${USERNAME} /opt/agent /app \
  && ln -sf /home/agent/.local/bin/claude /usr/local/bin/claude \
  && ln -sf /home/agent/.local/bin/codex /usr/local/bin/codex
 USER ${USERNAME}
-COPY --chown=${USERNAME}:${USERNAME} entrypoint.sh healthcheck /opt/agent/
-RUN chmod +x /opt/agent/entrypoint.sh /opt/agent/healthcheck
+COPY --chown=${USERNAME}:${USERNAME} entrypoint.sh healthcheck keep-claude-config /opt/agent/
+RUN chmod +x /opt/agent/entrypoint.sh /opt/agent/healthcheck /opt/agent/keep-claude-config
 
 # The node stays the agent's: a docker exec lands as the agent. Its one root
 # path is the helper that joins the group of the host's Docker socket at boot,

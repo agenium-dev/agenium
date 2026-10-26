@@ -83,6 +83,8 @@ jobs:
             capabilities help > /dev/null
             deployment help > /dev/null
             test -x /opt/agent/entrypoint.sh
+            test "$(readlink "$HOME/.claude.json")" = .claude/.claude.json
+            test -x /opt/agent/keep-claude-config
             test -z "$(ls -A /app | grep -v "^capabilities$")"
           '
 

@@ -1,0 +1,44 @@
+#!/usr/bin/env bash
+# Keeps Claude Code's account state on the ~/.claude volume. Claude Code keeps
+# it in ~/.claude.json, beside the volume rather than in it, so a new container
+# would start without it. Here ~/.claude.json is a link to ~/.claude/.claude.json,
+# which Claude Code reads and writes through. A ~/.claude.json found as a file -
+# or as a link to anywhere else - is moved onto the volume first: the volume's
+# own copy is kept when it holds anything, and the copy that is not kept is set
+# aside in ~/.claude/backups, so neither is lost. Running it again changes
+# nothing.
+set -euo pipefail
+
+home_file="$HOME/.claude.json"
+link_target=".claude/.claude.json"
+volume_file="$HOME/.claude/.claude.json"
+backups="$HOME/.claude/backups"
+
+if [ -L "$home_file" ] && [ "$(readlink "$home_file")" = "$link_target" ]; then
+  exit 0
+fi
+if [ -e "$home_file" ] && [ ! -f "$home_file" ]; then
+  echo "[entrypoint] WARN: $home_file is neither a file nor a link to one; Claude Code's account state is not kept on the ~/.claude volume" >&2
+  exit 0
+fi
+
+mkdir -p "$HOME/.claude"
+set_aside() {
+  mkdir -p "$backups"
+  local to="$backups/claude.json.$2.$(date -u +%Y%m%dT%H%M%SZ).$$"
+  cp -p "$1" "$to"
+  echo "[entrypoint] kept the ~/.claude volume's copy of Claude Code's account state; set the $2 copy aside at $to"
+}
+
+if [ -f "$home_file" ]; then
+  if [ ! -s "$volume_file" ]; then
+    cp -p "$home_file" "$volume_file.tmp.$$"
+    mv -f "$volume_file.tmp.$$" "$volume_file"
+    echo "[entrypoint] moved Claude Code's account state from ~/.claude.json onto the ~/.claude volume"
+  elif ! cmp -s "$home_file" "$volume_file"; then
+    set_aside "$home_file" home
+  fi
+fi
+
+rm -f "$home_file"
+ln -s "$link_target" "$home_file"
