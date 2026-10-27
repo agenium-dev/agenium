@@ -115,6 +115,14 @@ RUN mkdir -p "$HOME/.local/state" "$HOME/.config" "$HOME/.claude" "$HOME/.codex"
  && chown ${USERNAME}:${USERNAME} "$HOME/.local/state" "$HOME/.config" "$HOME/.claude" "$HOME/.codex" "$HOME/work" /app/capabilities
 USER ${USERNAME}
 
+# What the node says of itself to the capabilities manager, which writes it
+# into the node's state in the store: the image's version, read from the file
+# copied last so a new version reuses every layer above it, and the file the
+# boot path writes its one line of what it is doing to.
+ENV AGENT_NODE_VERSION_FILE=/opt/agent/VERSION \
+    AGENT_NODE_STATE_FILE=/tmp/agent-node.state
+COPY --chown=${USERNAME}:${USERNAME} VERSION /opt/agent/VERSION
+
 # Healthy while it waits for its agent and once the agent is up with its
 # services under the supervisor; see the check for what it asks.
 HEALTHCHECK --interval=30s --timeout=5s --start-period=2m --retries=3 \

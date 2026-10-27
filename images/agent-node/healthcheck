@@ -3,7 +3,7 @@
 # once it runs it; unhealthy when the agent runs without the services it could
 # not compile, and when the supervisor the boot path handed over to does not
 # answer.
-state="$(cat /tmp/agent-node.state 2>/dev/null)" || exit 1
+state="$(cat "${AGENT_NODE_STATE_FILE:-/tmp/agent-node.state}" 2>/dev/null)" || exit 1
 case "$state" in
   "") exit 1 ;;
   unhealthy:*) echo "$state"; exit 1 ;;

@@ -13,8 +13,9 @@ set -euo pipefail
 # compile. The supervisor's configuration is named only once the supervisor is
 # what runs, and the health check then also asks the supervisor. A box that
 # cannot raise its agent exits instead. A restarted container keeps /tmp, so
-# each boot starts both afresh.
-STATE=/tmp/agent-node.state
+# each boot starts both afresh. The image names the state file
+# (AGENT_NODE_STATE_FILE), so the capabilities manager reports its line too.
+STATE="${AGENT_NODE_STATE_FILE:-/tmp/agent-node.state}"
 SUPERVISED=/tmp/agent-node.supervisor
 node_state() { printf '%s\n' "$*" > "$STATE"; }
 rm -f "$SUPERVISED"
