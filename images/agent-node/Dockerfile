@@ -8,8 +8,12 @@ LABEL org.opencontainers.image.source="https://github.com/agenium-dev/agenium"
 LABEL org.opencontainers.image.description="The standard Agenium agent node: agent CLIs, capability CLIs and the boot path, with no agent and no secret inside."
 
 # bubblewrap and socat are what Claude Code's and Codex's sandboxes need on Linux.
+# A program a capability needs beyond these, such as ffmpeg for telegram's call
+# recording or rclone for rclonec, is not carried here: the capability fetches
+# it as the agent on first use into ~/.local/state, which a node keeps on a
+# volume, and `capabilities doctor` names it until then.
 RUN apt-get update && apt-get install -y --no-install-recommends \
-        ca-certificates curl git openssh-client ripgrep file ffmpeg python3 procps supervisor sudo \
+        ca-certificates curl git openssh-client ripgrep python3 procps supervisor sudo \
         bubblewrap socat \
     && rm -rf /var/lib/apt/lists/*
 

@@ -1,6 +1,6 @@
 # agent-node
 
-The standard agent node image, `ghcr.io/agenium-dev/agent-node`, for linux/amd64 and linux/arm64. It holds the tools and the boot path of an agent node: Python and uv, git and the GitHub CLI (`gh`), Claude Code and Codex, the capabilities manager with the whole capability catalogue, the supervisor, and the entrypoint. It holds no agent and no secret, and no image is built per agent.
+The standard agent node image, `ghcr.io/agenium-dev/agent-node`, for linux/amd64 and linux/arm64. It holds the tools and the boot path of an agent node: Python and uv, git and the GitHub CLI (`gh`), Claude Code and Codex, the capabilities manager with the whole capability catalogue, the supervisor, and the entrypoint. It holds no agent and no secret, and no image is built per agent. A program a capability needs beyond these, such as ffmpeg for call recording or rclone, is not in the image: the capability fetches it as the agent the first time it is needed, into `/home/agent/.local/state`, and `capabilities doctor` names each one still missing.
 
 ## Running it
 
