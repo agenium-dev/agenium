@@ -74,9 +74,11 @@ fi
 # with - the node's service manager, which runs the agent's services, is the
 # manager's. So the manager is brought to the release that catalogue carries
 # first.
+node_state "booting: checking the capabilities manager against the catalogue this image names"
 if capabilities self-update --check < /dev/null 2>/dev/null \
      | python3 -c 'import json,sys; sys.exit(0 if json.load(sys.stdin).get("update_available") else 1)'; then
   echo "[entrypoint] updating the capabilities manager to the release the catalogue this image names carries"
+  node_state "booting: updating the capabilities manager"
   if ! capabilities self-update < /dev/null > /dev/null; then
     echo "[entrypoint] WARN: could not update the capabilities manager; the node runs the manager it has" >&2
   fi
@@ -88,48 +90,71 @@ fi
 # installed; one installed from another catalogue is installed again from this
 # one; one already from this catalogue is updated only where the manager finds a
 # different payload there. One installed from anywhere else is left as it is.
+#
+# A pass takes either only the capabilities it names (`only <name>...`) or every
+# one but those (`except <name>...`). The boot path runs the first for the
+# capabilities its agent uses, once the agent is bound, and the second for the
+# rest once the agent runs, beside it. Where `say` is given, the pass writes
+# what it is doing to the node's state line as it goes, with a count of the
+# capabilities it brings level: `<say>: <n> of <total> (<name>)`.
 registry="${CAPABILITIES_HOME:-$HOME/.capabilities}"
-if plan="$(curl -fsSL "${CAPABILITIES_SOURCE}/.capability-source/catalog.json" | python3 -c 'import json,os,sys
-reg, base, ex = sys.argv[1], sys.argv[2], set(sys.argv[3:])
+catalogue_pass() {
+  local say="$1" mode="$2" plan work state name total n behind recorded
+  shift 2
+  if ! plan="$(curl -fsSL "${CAPABILITIES_SOURCE}/.capability-source/catalog.json" | python3 -c 'import json,os,sys
+reg, base, mode, names = sys.argv[1], sys.argv[2], sys.argv[3], set(sys.argv[4:])
 for n in sorted(json.load(sys.stdin)["capabilities"]):
-    if n in ex: continue
+    if (n in names) != (mode == "only"): continue
     if not os.path.isfile(os.path.join(reg, n, n)): print("missing", n); continue
     try: meta = json.load(open(os.path.join(reg, n, "meta.json")))
     except (OSError, ValueError): continue
     src, rel = str(meta.get("source") or ""), "/capabilities/%s/bin/%s" % (n, n)
     if meta.get("source_id") or not src.startswith(("http://", "https://")) or not src.endswith(rel): continue
     print("recorded" if src == base + rel else "moved", n)
-' "$registry" "${CAPABILITIES_SOURCE}")"; then
-  recorded=""
+' "$registry" "${CAPABILITIES_SOURCE}" "$mode" "$@")"; then
+    echo "[entrypoint] WARN: could not read the capability catalogue; the node runs with the capabilities it has" >&2
+    return 0
+  fi
+  work="" recorded=""
   while read -r state name; do
+    case "$state" in
+      missing|moved) work="$work$state $name"$'\n' ;;
+      recorded) recorded="$recorded $name" ;;
+    esac
+  done <<< "$plan"
+  if [ -n "$recorded" ]; then
+    [ -z "$say" ] || node_state "$say: checking which are behind the catalogue"
+    behind="$(capabilities update --check < /dev/null 2>/dev/null | python3 -c 'import json,sys; want=set(sys.argv[1:]); rows=json.load(sys.stdin).get("checked") or []; [print(r["name"]) for r in rows if r.get("name") in want and r.get("update_available")]' $recorded || true)"
+    for name in $behind; do work="${work}behind $name"$'\n'; done
+  fi
+  total="$(printf '%s' "$work" | grep -c . || true)"
+  n=0
+  while read -r state name; do
+    [ -n "$name" ] || continue
+    n=$((n + 1))
+    [ -z "$say" ] || node_state "$say: $n of $total ($name)"
     case "$state" in
       missing)
         echo "[entrypoint] installing $name: the catalogue carries it and this node's registry lacks it"
         if ! capabilities install "$name" --allow < /dev/null > /dev/null; then
-          echo "[entrypoint] WARN: could not install $name; the box runs without it" >&2
+          echo "[entrypoint] WARN: could not install $name; the node runs without it" >&2
         fi
         ;;
       moved)
         echo "[entrypoint] updating $name: it was installed from another catalogue than the one this image names"
         if ! capabilities install "$name" < /dev/null > /dev/null; then
-          echo "[entrypoint] WARN: could not update $name; the box runs the payload it has" >&2
+          echo "[entrypoint] WARN: could not update $name; the node runs the payload it has" >&2
         fi
         ;;
-      recorded) recorded="$recorded $name" ;;
+      behind)
+        echo "[entrypoint] updating $name: the catalogue this image names carries a different payload"
+        if ! capabilities update "$name" < /dev/null > /dev/null; then
+          echo "[entrypoint] WARN: could not update $name; the node runs the payload it has" >&2
+        fi
+        ;;
     esac
-  done <<< "$plan"
-  if [ -n "$recorded" ]; then
-    behind="$(capabilities update --check < /dev/null 2>/dev/null | python3 -c 'import json,sys; want=set(sys.argv[1:]); rows=json.load(sys.stdin).get("checked") or []; [print(r["name"]) for r in rows if r.get("name") in want and r.get("update_available")]' $recorded || true)"
-    for name in $behind; do
-      echo "[entrypoint] updating $name: the catalogue this image names carries a different payload"
-      if ! capabilities update "$name" < /dev/null > /dev/null; then
-        echo "[entrypoint] WARN: could not update $name; the box runs the payload it has" >&2
-      fi
-    done
-  fi
-else
-  echo "[entrypoint] WARN: could not read the capability catalogue; the box runs with the capabilities it has" >&2
-fi
+  done <<< "$work"
+}
 
 # --- Waiting for its agent ---------------------------------------------------
 # A node starts knowing nothing. Until it has an agent id and a store the
@@ -157,7 +182,7 @@ while waiting="$(missing)"; [ -n "$waiting" ]; do
     said="$waiting"
   fi
   node_state "idle: waiting for $waiting"
-  sleep "${AGENT_NODE_POLL_SECONDS:-30}"
+  sleep "${AGENT_NODE_POLL_SECONDS:-5}"
 done
 node_state "raising agent $CAPABILITIES_PROJECT_ID"
 
@@ -208,6 +233,22 @@ if ! capabilities init --id "$CAPABILITIES_PROJECT_ID" < /dev/null > /dev/null; 
 fi
 echo "[entrypoint] $APP bound to agent $CAPABILITIES_PROJECT_ID as node $NODE"
 
+# --- The agent's capabilities at the catalogue -------------------------------
+# Only the capabilities the agent's gate makes usable here are brought level now,
+# before anything of the agent runs; the rest follow once it runs. A gate that
+# cannot be read brings every capability level now, as a node always did.
+if used="$(capabilities list --json < /dev/null 2>/dev/null | python3 -c 'import json,sys; print(" ".join(c["name"] for c in json.load(sys.stdin)["installed"] if c.get("effective") == "enabled"))')"; then
+  echo "[entrypoint] bringing the capabilities agent $CAPABILITIES_PROJECT_ID uses to the catalogue:${used:+ $used}"
+  # shellcheck disable=SC2086
+  catalogue_pass "raising agent $CAPABILITIES_PROJECT_ID: bringing its capabilities to the catalogue" only $used
+else
+  echo "[entrypoint] WARN: could not read which capabilities agent $CAPABILITIES_PROJECT_ID uses; bringing every capability to the catalogue now" >&2
+  used=""
+  catalogue_pass "raising agent $CAPABILITIES_PROJECT_ID: bringing every capability to the catalogue" except
+  rest_done=1
+fi
+node_state "raising agent $CAPABILITIES_PROJECT_ID: composing its context"
+
 # --- Context, composed from the store ----------------------------------------
 # The agent CLIs' session hooks rebuild it as each session starts; the build here
 # gives the node its context before anything runs.
@@ -248,6 +289,16 @@ fi
 echo "[entrypoint] agent node ready; $(claude --version 2>/dev/null || echo 'claude missing'); $claude_auth"
 echo "[entrypoint] $(codex --version 2>/dev/null || echo 'codex missing'); $codex_auth"
 node_state "running agent $CAPABILITIES_PROJECT_ID as node $NODE"
+
+# --- The rest of the catalogue, beside the running agent ---------------------
+# Every other capability is brought level in the background, after the agent is
+# up, so the node still holds the whole catalogue at the catalogue it names. It
+# leaves the node's state line to the running agent.
+if [ -z "${rest_done:-}" ]; then
+  # shellcheck disable=SC2086
+  ( catalogue_pass "" except $used
+    echo "[entrypoint] the rest of the catalogue is at the catalogue this image names" ) < /dev/null &
+fi
 
 if [ "$#" -gt 0 ]; then
   exec "$@"
