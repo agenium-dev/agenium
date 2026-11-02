@@ -234,10 +234,11 @@ fi
 echo "[entrypoint] $APP bound to agent $CAPABILITIES_PROJECT_ID as node $NODE"
 
 # --- The agent's capabilities at the catalogue -------------------------------
-# Only the capabilities the agent's gate makes usable here are brought level now,
-# before anything of the agent runs; the rest follow once it runs. A gate that
-# cannot be read brings every capability level now, as a node always did.
-if used="$(capabilities list --json < /dev/null 2>/dev/null | python3 -c 'import json,sys; print(" ".join(c["name"] for c in json.load(sys.stdin)["installed"] if c.get("effective") == "enabled"))')"; then
+# Only the capabilities the agent's gate makes usable here, and those it enables
+# that this node's registry lacks, are brought level now, before anything of the
+# agent runs; the rest follow once it runs. A gate that cannot be read brings
+# every capability level now, as a node always did.
+if used="$(capabilities list --json < /dev/null 2>/dev/null | python3 -c 'import json,sys; g=json.load(sys.stdin); print(" ".join([c["name"] for c in g["installed"] if c.get("effective") == "enabled"] + list(g.get("enabled_not_installed") or [])))')"; then
   echo "[entrypoint] bringing the capabilities agent $CAPABILITIES_PROJECT_ID uses to the catalogue:${used:+ $used}"
   # shellcheck disable=SC2086
   catalogue_pass "raising agent $CAPABILITIES_PROJECT_ID: bringing its capabilities to the catalogue" only $used
