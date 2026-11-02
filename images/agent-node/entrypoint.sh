@@ -9,8 +9,7 @@
 set -euo pipefail
 
 # What the box is doing, for its health check: healthy while it waits and once
-# it runs, unhealthy once it runs its agent without the services it could not
-# compile. The supervisor's configuration is named only once the supervisor is
+# it runs. The supervisor's configuration is named only once the supervisor is
 # what runs, and the health check then also asks the supervisor. A box that
 # cannot raise its agent exits instead. A restarted container keeps /tmp, so
 # each boot starts both afresh. The image names the state file
@@ -71,7 +70,7 @@ fi
 
 # --- The manager at the catalogue this image names ---------------------------
 # Each boot brings the capabilities to the catalogue at CAPABILITIES_SOURCE, and
-# what they compile may need a manager newer than the one this image was built
+# their services may need a manager newer than the one this image was built
 # with - the node's service manager, which runs the agent's services, is the
 # manager's. So the manager is brought to the release that catalogue carries
 # first.
@@ -226,45 +225,13 @@ fi
 capabilities doctor >/dev/null 2>&1 || echo "[entrypoint] WARN: capabilities doctor reported findings; run it inside the node" >&2
 
 # --- The agent's services ----------------------------------------------------
-# `deployment` compiles the supervisor for this agent, here and on every boot.
-# For an agent the store holds, its one program for the services is the node's
-# service manager, `capabilities node run`, which keeps a program for each
-# service the agent's gate places on this node and none for any other. The
-# compiled folder is the entrypoint's own, so each boot - a restart of the same
-# container too - lays it anew rather than meeting what the last boot left.
-supervisor_conf=""
-compiled=""
-rm -rf "$APP/deployment"
-if out="$(deployment init --profile agent-box-shell --provider manual < /dev/null 2>&1)" \
-   && out="$(python3 - "$APP/deployment/runtime.json" "$APP" <<'PY' 2>&1
-import json, sys
-path, root = sys.argv[1], sys.argv[2]
-with open(path) as f:
-    runtime = json.load(f)
-container = runtime.setdefault("compiler", {}).setdefault("container", {})
-if container.get("project_root") != root:
-    container["project_root"] = root
-    with open(path, "w") as f:
-        json.dump(runtime, f, indent=2, sort_keys=True)
-        f.write("\n")
-PY
-)" \
-   && out="$(deployment sync < /dev/null 2>&1)"; then
-  compiled=yes
-  if [ -f "$APP/deployment/targets/production/supervisord.conf" ]; then
-    supervisor_conf="$APP/deployment/targets/production/supervisord.conf"
-    if grep -q '^command=capabilities node run ' "$supervisor_conf"; then
-      echo "[entrypoint] services compiled: the node's service manager runs those placed on this node"
-    else
-      echo "[entrypoint] services compiled: $(grep -c '^\[program:' "$supervisor_conf") runner(s) under the supervisor"
-    fi
-  else
-    echo "[entrypoint] no service in the installed catalogue; nothing runs under the supervisor"
-  fi
-else
-  echo "[entrypoint] WARN: the agent's services could not be compiled, so none runs on this node:" >&2
-  printf '%s\n' "$out" >&2
-fi
+# The supervisor's configuration is the image's own, the same on every node: its
+# one program is the node's service manager, `capabilities node run`, which keeps
+# a program for each service the agent's gate places on this node and none for
+# any other. Its programs start in this folder, the agent's root, where the
+# supervisor is started.
+supervisor_conf=/opt/agent/supervisord.conf
+echo "[entrypoint] the node's service manager runs the services placed on this node"
 
 if [ -f "$HOME/.claude/.credentials.json" ] || [ -d "$HOME/.claude/projects" ]; then
   claude_auth="claude state present"
@@ -280,19 +247,11 @@ fi
 
 echo "[entrypoint] agent node ready; $(claude --version 2>/dev/null || echo 'claude missing'); $claude_auth"
 echo "[entrypoint] $(codex --version 2>/dev/null || echo 'codex missing'); $codex_auth"
-if [ -n "$compiled" ]; then
-  node_state "running agent $CAPABILITIES_PROJECT_ID as node $NODE"
-else
-  node_state "unhealthy: running agent $CAPABILITIES_PROJECT_ID as node $NODE without its services, which could not be compiled"
-fi
+node_state "running agent $CAPABILITIES_PROJECT_ID as node $NODE"
 
 if [ "$#" -gt 0 ]; then
   exec "$@"
 fi
 
-if [ -n "$supervisor_conf" ]; then
-  printf '%s\n' "$supervisor_conf" > "$SUPERVISED"
-  exec supervisord -c "$supervisor_conf"
-fi
-
-exec sleep infinity
+printf '%s\n' "$supervisor_conf" > "$SUPERVISED"
+exec supervisord -c "$supervisor_conf"

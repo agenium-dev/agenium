@@ -79,7 +79,7 @@ RUN mkdir -p /opt/agent /app && chown ${USERNAME}:${USERNAME} /opt/agent /app \
  && ln -sf /home/agent/.local/bin/claude /usr/local/bin/claude \
  && ln -sf /home/agent/.local/bin/codex /usr/local/bin/codex
 USER ${USERNAME}
-COPY --chown=${USERNAME}:${USERNAME} entrypoint.sh healthcheck keep-claude-config /opt/agent/
+COPY --chown=${USERNAME}:${USERNAME} entrypoint.sh healthcheck keep-claude-config supervisord.conf /opt/agent/
 RUN chmod +x /opt/agent/entrypoint.sh /opt/agent/healthcheck /opt/agent/keep-claude-config
 
 # The node stays the agent's: a docker exec lands as the agent. Its one root
